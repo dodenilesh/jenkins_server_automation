@@ -12,7 +12,7 @@ function wait_for_jenkins()
           break
       fi
 
-      sleep 10
+      sleep 3
   done
 
   echo "Jenkins launched"
@@ -20,7 +20,8 @@ function wait_for_jenkins()
 
 function updating_jenkins_master_password ()
 {
-  cat > /tmp/jenkinsHash.py <<EOF
+
+  cat > ./jenkinsHash.py <<EOF
 import bcrypt
 import sys
 
@@ -28,42 +29,46 @@ if not sys.argv[1]:
   sys.exit(10)
 
 plaintext_pwd=sys.argv[1]
-encrypted_pwd=bcrypt.hashpw(sys.argv[1], bcrypt.gensalt(rounds=10, prefix=b"2a"))
-isCorrect=bcrypt.checkpw(plaintext_pwd, encrypted_pwd)
+encrypted_pwd=bcrypt.hashpw(plaintext_pwd.encode('utf8'), bcrypt.gensalt(rounds=10, prefix=b"2a"))
+isCorrect=bcrypt.checkpw(plaintext_pwd.encode('utf8'), encrypted_pwd)
 
 if not isCorrect:
   sys.exit(20);
 
-print "{}".format(encrypted_pwd)
+print(encrypted_pwd.decode('ascii'))
 EOF
-
-  chmod +x /tmp/jenkinsHash.py
+   
+  chmod +x ./jenkinsHash.py
   
   # Wait till /var/lib/jenkins/users/admin* folder gets created
-  sleep 10
-
-  cd /var/lib/jenkins/users/admin*
+  sleep 3
+  
+  #cd /var/lib/jenkins/users/admin*
   pwd
   while (( 1 )); do
       echo "Waiting for Jenkins to generate admin user's config file ..."
-
-      if [[ -f "./config.xml" ]]; then
+      sudo find  /var/lib/jenkins/users/admin_* | grep config.xml
+      if [[ $? -eq 0 ]]; then
           break
       fi
 
-      sleep 10
+      sleep 3
   done
 
   echo "Admin config file created"
 
-  admin_password=$(python /tmp/jenkinsHash.py password 2>&1)
+  admin_password=$(python3 ./jenkinsHash.py password 2>&1)
+  echo $admin_password
   
+  sudo -s chmod -R  777 /var/lib/jenkins/users/admin*
+  cd /var/lib/jenkins/users/admin*
   # Please do not remove alter quote as it keeps the hash syntax intact or else while substitution, $<character> will be replaced by null
   xmlstarlet -q ed --inplace -u "/user/properties/hudson.security.HudsonPrivateSecurityRealm_-Details/passwordHash" -v '#jbcrypt:'"$admin_password" config.xml
 
   # Restart
-  systemctl restart jenkins
-  sleep 10
+  sudo systemctl restart jenkins.service
+  sleep 3
+
 }
 
 function install_packages ()
@@ -75,14 +80,14 @@ function install_packages ()
   sudo apt install -y jenkins
   sudo systemctl enable jenkins.service
   sudo systemctl restart jenkins.service
-  sleep 10
+  sleep 3
 }
 
 function configure_jenkins_server ()
 {
   # Jenkins cli
   echo "installing the Jenkins cli ..."
-  cp /var/cache/jenkins/war/WEB-INF/jenkins-cli.jar /var/lib/jenkins/jenkins-cli.jar
+  sudo cp /var/cache/jenkins/war/WEB-INF/lib/cli-2.375.1.jar /var/lib/jenkins/jenkins-cli.jar
 
   # Getting initial password
   # PASSWORD=$(cat /var/lib/jenkins/secrets/initialAdminPassword)
@@ -92,7 +97,7 @@ function configure_jenkins_server ()
   jenkins_dir="/var/lib/jenkins"
   plugins_dir="$jenkins_dir/plugins"
 
-  cd $jenkins_dir
+  sudo cd $jenkins_dir
 
   # Open JNLP port
   xmlstarlet -q ed --inplace -u "/hudson/slaveAgentPort" -v 33453 config.xml
